@@ -13,6 +13,6 @@ RUN chmod +x /usr/local/bin/uclust
 
 WORKDIR /app
 
-RUN pip install celery redis requests
+RUN pip install celery redis requests python-dotenv
 
 CMD ["celery", "-A", "tasks.core", "worker", "--loglevel=info"]

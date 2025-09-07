@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+   worker:
+     build:
+       dockerfile: Dockerfile
+     user: "1000:1000"  # Run as non-root user
+     volumes:
+       - /Users/ampersandor/data/sat:/data
+       - ../tasks:/app/tasks
+     extra_hosts:
+       - "host.docker.internal:host-gateway"
+
+networks:
+  default:
+    driver: bridge
