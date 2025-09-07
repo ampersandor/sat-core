@@ -6,14 +6,16 @@ import logging
 import requests
 import hashlib
 from celery import Celery, signals
+from wonderwords import RandomWord
 
 load_dotenv()
 logger = logging.getLogger(__name__)
 broker_url = os.getenv("BROKER_URL", "pyamqp://guest@localhost//")
 webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8080/api/v1/analyze/update")
+r = RandomWord()
 
 app = Celery("tasks", broker=broker_url)
-data_dir = os.getenv("DATA_DIR", "/data")
+prefix = os.getenv("DATA_DIR", "/data")
 
 class Tool(Enum):
     MAFFT = "mafft"
@@ -21,13 +23,13 @@ class Tool(Enum):
     UCLUST = "uclust"
 
 @app.task(bind=True)
-def run_tool(self, input_path, tool, options):
-    file_name = os.path.basename(input_path).split(".")[0]
-    input_path = os.path.join(data_dir, input_path)
-    hash_output_file = hashlib.sha256((file_name + tool + "".join(options)).encode()).hexdigest()
-    res = hash_output_file + ".aln"
-    output_file = os.path.join(data_dir, res)
-    log_file = os.path.join(data_dir, hash_output_file + ".log")
+def run_tool(self, dir_name, base_name, tool, options):
+    input_path = os.path.join(prefix, dir_name, base_name)
+    random_word = r.word()
+
+    output_file = os.path.join(prefix, dir_name, random_word + ".aln")
+    log_file = os.path.join(prefix, dir_name, random_word + ".log")
+
     cmd = [tool, *options.split(), input_path]
     with open(output_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
         process = subprocess.run(cmd, stdout=f_out, stderr=f_log, text=True)
@@ -38,7 +40,7 @@ def run_tool(self, input_path, tool, options):
             raise Exception(f"{tool} alignment failed with return code {process.returncode}: {error_msg}")
     logger.info(f"{tool} alignment completed successfully. Output saved to: {output_file}")
 
-    return res
+    return random_word + ".aln"
 
 
 @signals.task_success.connect

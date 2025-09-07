@@ -5,27 +5,22 @@ services:
     build:
       dockerfile: Dockerfile
     user: "1000:1000"
+    command: celery -A tasks.app worker --loglevel=info --concurrency=2
+    env_file: [.env]
     volumes:
-      - /Users/ampersandor/data/sat:/data
+      - "${DATA_DIR}:/data"
       - ../tasks:/app/tasks
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    env_file:
-      - .env
-    networks:
-      - default
+    networks: [default]
 
   flower:
     image: mher/flower
-    command: ["celery", "--broker=${BROKER_URL}", "flower", "--port=5555"]
-    ports:
-      - "5555:5555"
-    env_file:
-      - .env
-    networks:
-      - default
-    depends_on:
-      - worker
+    command: ["celery","--broker=${BROKER_URL}","flower","--port=5555"]
+    ports: ["5555:5555"]
+    env_file: [.env]
+    networks: [default]
+    depends_on: [worker]
 
 networks:
   default:

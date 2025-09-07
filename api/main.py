@@ -23,11 +23,13 @@ class AlignTool(str, Enum):
 
 
 class RunRequest(BaseModel):
-    input_path: str = Field(..., description="input file path")
+    dir_name: str = Field(..., description="directory name")
+    base_name: str = Field(..., description="input file name")
     align_tool: str = Field(
         ..., description="Alignment tool to use (mafft, vsearch, or uclust)"
     )
     options: str = Field(..., description="Command line options for the tool")
+
 
     @field_validator("align_tool")
     def validate_align_tool(cls, v):
@@ -56,12 +58,13 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 @app.post("/align")
 async def trigger_run(request: RunRequest):
     logger.info(
-        f"Received alignment request for file: {request.input_path}, tool: {request.align_tool}, options: {request.options}"
+        f"Received alignment request for file: {request.base_name}, tool: {request.align_tool}, options: {request.options}"
     )
 
     try:
         task = run_tool.delay(
-            input_path=request.input_path,
+            dir_name=request.dir_name,
+            base_name=request.base_name,
             tool=request.align_tool,
             options=request.options,
         )
