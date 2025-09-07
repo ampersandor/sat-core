@@ -1,10 +1,10 @@
 import os
-from dotenv import load_dotenv
 import subprocess
-from enum import Enum
 import logging
+from enum import Enum
+
 import requests
-import hashlib
+from dotenv import load_dotenv
 from celery import Celery, signals
 from wonderwords import RandomWord
 
@@ -15,7 +15,7 @@ webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8080/api/v1/analyze/upd
 r = RandomWord()
 
 app = Celery("tasks", broker=broker_url)
-prefix = os.getenv("DATA_DIR", "/data")
+PREFIX = "/data"
 
 class Tool(Enum):
     MAFFT = "mafft"
@@ -24,11 +24,11 @@ class Tool(Enum):
 
 @app.task(bind=True)
 def run_tool(self, dir_name, base_name, tool, options):
-    input_path = os.path.join(prefix, dir_name, base_name)
+    input_path = os.path.join(PREFIX, dir_name, base_name)
     random_word = r.word()
 
-    output_file = os.path.join(prefix, dir_name, random_word + ".aln")
-    log_file = os.path.join(prefix, dir_name, random_word + ".log")
+    output_file = os.path.join(PREFIX, dir_name, random_word + ".aln")
+    log_file = os.path.join(PREFIX, dir_name, random_word + ".log")
 
     cmd = [tool, *options.split(), input_path]
     with open(output_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
