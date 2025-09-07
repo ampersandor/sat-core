@@ -40,13 +40,13 @@ def run_tool(self, dir_name, base_name, tool, options):
             raise Exception(f"{tool} alignment failed with return code {process.returncode}: {error_msg}")
     logger.info(f"{tool} alignment completed successfully. Output saved to: {output_file}")
 
-    return random_word + ".aln"
+    return random_word + ".aln", dir_name, base_name
 
 
 @signals.task_success.connect
 def on_success(sender=None, result=None, **kwargs):
     task_id = sender.request.id
-    output_file = result
+    output_file, output_dir, base_name = result
     print(f"on_success: {task_id}, {output_file}")
     print(f"webhook_url: {webhook_url}")
     if webhook_url:
@@ -55,6 +55,7 @@ def on_success(sender=None, result=None, **kwargs):
                 "task_id": task_id,
                 "status": "SUCCESS",
                 "output_file": output_file,
+                "output_dir": output_dir,
                 "message": None,
             }
             print(f"Sending webhook payload: {payload}")
@@ -79,6 +80,7 @@ def on_failure(sender=None, exception=None, **kwargs):
                 "task_id": task_id,
                 "status": "ERROR",
                 "output_file": None,
+                "output_dir": None,
                 "message": str(exception),
             }
             print(f"Sending webhook payload: {payload}")
