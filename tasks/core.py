@@ -1,4 +1,5 @@
 import os
+from dotenv import load_dotenv
 import subprocess
 from enum import Enum
 import logging
@@ -6,9 +7,9 @@ import requests
 import hashlib
 from celery import Celery, signals
 
+load_dotenv()
 logger = logging.getLogger(__name__)
 broker_url = os.getenv("BROKER_URL", "pyamqp://guest@localhost//")
-redis_host = os.getenv("REDIS_HOST", "localhost")
 webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8000/align/webhook")
 
 app = Celery("tasks", broker=broker_url)
