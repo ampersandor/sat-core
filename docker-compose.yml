@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  # worker:
+  #   build:
+  #     context: ./worker
+  #     dockerfile: Dockerfile
+  #   user: "1000:1000"  # Run as non-root user
+  #   depends_on:
+  #     # rabbitmq:
+  #     #   condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   environment:
+  #     # - BROKER_URL=pyamqp://guest:guest@rabbitmq//
+  #     # - REDIS_HOST=redis
+  #     - BROKER_URL=amqps://lpadzyog:cm0EAwpUg_1X4rC1BLewg-chs1YnT_FV@dingo.rmq.cloudamqp.com/lpadzyog
+  #     - REDIS_HOST=redis
+  #     - DATA_DIR=/data
+  #     - WEBHOOK_URL=http://host.docker.internal:8080/align/webhook
+  #   volumes:
+  #     - ../data:/data
+  #     - ./tasks:/app/tasks
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./tasks:/app/tasks
+
+networks:
+  default:
+    driver: bridge
