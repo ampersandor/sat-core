@@ -10,7 +10,7 @@ from celery import Celery, signals
 load_dotenv()
 logger = logging.getLogger(__name__)
 broker_url = os.getenv("BROKER_URL", "pyamqp://guest@localhost//")
-webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8000/align/webhook")
+webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8080/api/v1/analyze/update")
 
 app = Celery("tasks", broker=broker_url)
 data_dir = os.getenv("DATA_DIR", "/data")
@@ -22,7 +22,6 @@ class Tool(Enum):
 
 @app.task(bind=True)
 def run_tool(self, input_path, tool, options):
-    """Run mafft or vsearch, stream logs via Redis Pub/Sub"""
     file_name = os.path.basename(input_path).split(".")[0]
     input_path = os.path.join(data_dir, input_path)
     hash_output_file = hashlib.sha256((file_name + tool + "".join(options)).encode()).hexdigest()
@@ -54,7 +53,7 @@ def on_success(sender=None, result=None, **kwargs):
                 "task_id": task_id,
                 "status": "SUCCESS",
                 "output_file": output_file,
-                "error": None,
+                "message": None,
             }
             print(f"Sending webhook payload: {payload}")
             response = requests.post(webhook_url, json=payload)
@@ -78,7 +77,7 @@ def on_failure(sender=None, exception=None, **kwargs):
                 "task_id": task_id,
                 "status": "ERROR",
                 "output_file": None,
-                "error": str(exception),
+                "message": str(exception),
             }
             print(f"Sending webhook payload: {payload}")
             response = requests.post(webhook_url, json=payload)
