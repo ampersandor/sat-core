@@ -31,14 +31,6 @@ class RunRequest(BaseModel):
     options: str = Field(..., description="Command line options for the tool")
 
 
-    @field_validator("align_tool")
-    def validate_align_tool(cls, v):
-        valid_tools = [tool.value for tool in AlignTool]
-        if v not in valid_tools:
-            raise ValueError(f'align_tool must be one of: {", ".join(valid_tools)}')
-        return v
-
-
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     logger.error(f"Validation error for {request.method} {request.url}: {exc.errors()}")

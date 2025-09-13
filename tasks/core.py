@@ -1,12 +1,17 @@
 import os
+import shlex
 import subprocess
 import logging
 from enum import Enum
+from pathlib import Path
 
+import celery
 import requests
 from dotenv import load_dotenv
 from celery import Celery, signals
 from wonderwords import RandomWord
+from pydantic import BaseModel
+from .bluebase import BlueBase, Statistic
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -15,81 +20,104 @@ webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8080/api/v1/analyze/upd
 r = RandomWord()
 
 app = Celery("tasks", broker=broker_url)
-PREFIX = "/data"
+r = RandomWord()
+PREFIX = Path("/data")
+
 
 class Tool(Enum):
     MAFFT = "mafft"
     VSEARCH = "vsearch"
     UCLUST = "uclust"
 
-@app.task(bind=True)
-def run_tool(self, dir_name, base_name, tool, options):
-    input_path = os.path.join(PREFIX, dir_name, base_name)
+    @classmethod
+    def resolve(cls, v: str | "Tool"):
+        if isinstance(v, cls):
+            return v.value
+        v = (v or "").lower()
+        for m in cls:
+            if m.value == v or m.name.lower() == v:
+                return m.value
+        return v
+
+
+class Response(BaseModel):
+    status: str
+    task_id: str
+    align_stat_file: str
+    gap_stat_file: str
+    statistic: Statistic
+    output_dir: str
+    message: str
+
+
+
+def _extract_args(request):
+    """태스크 원본 인자 안전 추출"""
+    k = getattr(request, "kwargs", {}) or {}
+    a = tuple(getattr(request, "args", ()) or ())
+    dir_name = k.get("dir_name") if k else (a[0] if len(a) > 0 else None)
+    return dir_name
+
+
+def _post_webhook(payload: dict):
+    if not webhook_url:
+        logger.warning("webhook_url is not set; skip send.")
+        return
+    try:
+        resp = requests.post(webhook_url, json=payload, timeout=5)
+        logger.info("Webhook %s %s", resp.status_code, resp.text[:500])
+    except Exception as e:
+        logger.exception("[Webhook error] %s", e)
+
+
+def _notify(request, status: str, align_file=None, stat_file=None, statistic=None, message=None):
+    task_id = request.id
+    output_dir = _extract_args(request)
+    response = Response(
+        status=status,
+        task_id=task_id,
+        align_file=align_file,
+        stat_file=stat_file,
+        statistic=statistic,
+        output_dir=output_dir,
+        message=message,
+    )
+    _post_webhook(response.model_dump())
+
+
+@app.task(bind=True, name="run_tool")
+def run_tool(self: celery.Task, dir_name, base_name, tool, options):
+    logger.info(f"Starting {tool}: {self.request.id}")
+    output_dir = PREFIX / dir_name
+    input_path = output_dir / base_name
     random_word = r.word()
 
-    output_file = os.path.join(PREFIX, dir_name, random_word + ".aln")
-    log_file = os.path.join(PREFIX, dir_name, random_word + ".log")
+    align_file_name = f"{random_word}.aln"
+    align_file = output_dir / align_file_name
+    log_file = output_dir / f"{random_word}.log"
 
-    cmd = [tool, *options.split(), input_path]
-    with open(output_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
+    cmd = [Tool.resolve(tool), *shlex.split(options or ""), str(input_path)]
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    with open(align_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
         process = subprocess.run(cmd, stdout=f_out, stderr=f_log, text=True)
         if process.returncode != 0:
             with open(log_file, "r", encoding="utf-8") as f:
                 error_msg = f.read()
-            logger.error(f"{tool} alignment failed with error: {error_msg}")
-            raise Exception(f"{tool} alignment failed with return code {process.returncode}: {error_msg}")
-    logger.info(f"{tool} alignment completed successfully. Output saved to: {output_file}")
+            logger.error("%s failed: %s", cmd[0], error_msg[:1000])
+            raise RuntimeError(f"{cmd[0]} failed with rc={process.returncode}: {error_msg}")
 
-    return random_word + ".aln", dir_name, base_name
+    logger.info("%s completed. Output: %s", cmd[0], align_file)
+    stat_file_name, statistic = BlueBase(str(input_path), str(output_dir))
 
+    return align_file_name, stat_file_name, statistic
 
 @signals.task_success.connect
 def on_success(sender=None, result=None, **kwargs):
-    task_id = sender.request.id
-    output_file, output_dir, base_name = result
-    print(f"on_success: {task_id}, {output_file}")
-    print(f"webhook_url: {webhook_url}")
-    if webhook_url:
-        try:
-            payload = {
-                "task_id": task_id,
-                "status": "SUCCESS",
-                "output_file": output_file,
-                "output_dir": output_dir,
-                "message": None,
-            }
-            print(f"Sending webhook payload: {payload}")
-            response = requests.post(webhook_url, json=payload)
-            print(f"Webhook response status: {response.status_code}")
-            print(f"Webhook response content: {response.text}")
-        except Exception as e:
-            print(f"[Webhook error] {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print(f"webhook_url is not set")
+    align_file, stat_file, statistic = result
+    _notify(sender.request, "SUCCESS", align_file=align_file, stat_file=stat_file, statistic=statistic)
+
 
 @signals.task_failure.connect
 def on_failure(sender=None, exception=None, **kwargs):
-    task_id = sender.request.id
-    print(f"on_failure: {task_id}, {exception}")
-    print(f"webhook_url: {webhook_url}")
-    if webhook_url:
-        try:
-            payload = {
-                "task_id": task_id,
-                "status": "ERROR",
-                "output_file": None,
-                "output_dir": None,
-                "message": str(exception),
-            }
-            print(f"Sending webhook payload: {payload}")
-            response = requests.post(webhook_url, json=payload)
-            print(f"Webhook response status: {response.status_code}")
-            print(f"Webhook response content: {response.text}")
-        except Exception as e:
-            print(f"[Webhook error] {e}")
-            import traceback
-            traceback.print_exc()
-    else:
-        print(f"webhook_url is not set")
+    _notify(sender.request, "ERROR", message=str(exception))
