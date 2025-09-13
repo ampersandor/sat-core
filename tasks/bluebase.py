@@ -398,7 +398,3 @@ class BlueBase:
         statistic = self.get_statistics(stat_file)
 
         return stat_file, statistic
-
-
-cur_dir = os.path.dirname(os.path.abspath(__file__))
-BlueBase(os.path.join(cur_dir, "aligned.fasta"), cur_dir).main()

@@ -7,10 +7,11 @@ from pathlib import Path
 
 import celery
 import requests
+import json
 from dotenv import load_dotenv
 from celery import Celery, signals
 from wonderwords import RandomWord
-from pydantic import BaseModel
+from dataclasses import dataclass
 from .bluebase import BlueBase, Statistic
 
 load_dotenv()
@@ -29,22 +30,13 @@ class Tool(Enum):
     VSEARCH = "vsearch"
     UCLUST = "uclust"
 
-    @classmethod
-    def resolve(cls, v: str | "Tool"):
-        if isinstance(v, cls):
-            return v.value
-        v = (v or "").lower()
-        for m in cls:
-            if m.value == v or m.name.lower() == v:
-                return m.value
-        return v
 
-
-class Response(BaseModel):
+@dataclass
+class Response:
     status: str
     task_id: str
-    align_stat_file: str
-    gap_stat_file: str
+    align_file: str
+    stat_file: str
     statistic: Statistic
     output_dir: str
     message: str
@@ -82,7 +74,7 @@ def _notify(request, status: str, align_file=None, stat_file=None, statistic=Non
         output_dir=output_dir,
         message=message,
     )
-    _post_webhook(response.model_dump())
+    _post_webhook(response.__dict__)
 
 
 @app.task(bind=True, name="run_tool")
@@ -96,7 +88,7 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
     align_file = output_dir / align_file_name
     log_file = output_dir / f"{random_word}.log"
 
-    cmd = [Tool.resolve(tool), *shlex.split(options or ""), str(input_path)]
+    cmd = [Tool(tool.lower()).value, *shlex.split(options or ""), str(input_path)]
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(align_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
