@@ -1,6 +1,6 @@
 import os
 from Bio import SeqIO
-from collections import Counter
+from collections import Counter, defaultdict
 from dataclasses import dataclass
 
 Nucleotide_common = ["A", "T", "G", "C"]
@@ -45,7 +45,6 @@ class BlueBase:
         self.output_dir = output_dir
         self.base_name = os.path.basename(self.input_file)
 
-
     def get_statistics(self, stat_file):
         (
             stat_values,
@@ -57,10 +56,7 @@ class BlueBase:
 
         with open(stat_file, "w") as wf:
             wf.write("\n".join(stat_values) + "\n")
-        
-        blue_base_count = {
-            pct_id_cutoff[i]: blue_base_count[pct_id_cutoff[i]] for i in range(len(pct_id_cutoff))
-        }
+
         statistic = Statistic(
             total_seq=gap_stat_result[0],
             gap_seq_count=gap_stat_result[1],
@@ -78,7 +74,7 @@ class BlueBase:
 
     def align_to_statistics(self):
         bp_color = dict()
-        fasta_list = list()
+        sequences = list()
         miss_front_list = list()
         miss_end_list = list()
         gap_seq_count = 0
@@ -86,8 +82,8 @@ class BlueBase:
         gap_sumlength = 0
 
         for record in SeqIO.parse(self.input_file, "fasta"):
-            fasta_list.append(str(record.seq).replace(".", "-").upper())  # append fasta sequence
             seq = str(record.seq).replace(".", "-").upper()  # sequence for miss base count
+            sequences.append(seq)  # append fasta sequence
 
             miss_front = 0
             miss_front_seq = ""
@@ -139,7 +135,6 @@ class BlueBase:
                     miss_end += 1
                     miss_end_seq = "*" + miss_end_seq
             miss_end_list.append(miss_end_seq)
-
             nomissgap_seq = seq[base_start : base_end + 1]
             if "-" in nomissgap_seq:
                 gap_seq_count += 1
@@ -164,7 +159,6 @@ class BlueBase:
                     gap_length = gap_end - gap_start
                     gap_sumlength += gap_length
 
-        # gap statistics
         if gap_seq_count == 0:
             gap_freq = 0
             gap_avg_length = 0
@@ -172,8 +166,8 @@ class BlueBase:
             gap_freq = gap_count / float(gap_seq_count)
             gap_avg_length = gap_sumlength / float(gap_seq_count)
 
-        list_length = len(fasta_list)  # Extract total fasta count
-        sequence_length = len(fasta_list[0])  # Extract sequence length
+        list_length = len(sequences)  # Extract total fasta count
+        sequence_length = len(sequences[0])  # Extract sequence length
         a_data = []
         t_data = []
         g_data = []
@@ -192,7 +186,6 @@ class BlueBase:
         iupac_data = []
         max_seq_data = []
         max_seq_count_data = []
-
         cnt = 1
         for i in range(0, sequence_length):
             data = []
@@ -201,20 +194,19 @@ class BlueBase:
             header_data.append(str(cnt))
             for j in range(0, list_length):
                 try:
-                    if fasta_list[j][i] in Nucleotide_common:
-                        not_gap_data.append(fasta_list[j][i])
+                    if sequences[j][i] in Nucleotide_common:
+                        not_gap_data.append(sequences[j][i])
                     if miss_front_list[j][i] == "*" and miss_end_list[j][i] == "|":
                         mdata.append("*")
                     elif miss_front_list[j][i] == "|" and miss_end_list[j][i] == "|":
                         mdata.append("|")
                     elif miss_front_list[j][i] == "|" and miss_end_list[j][i] == "*":
                         mdata.append("*")
-                    data.append(fasta_list[j][i])
+                    data.append(sequences[j][i])
                 except Exception as e:
                     data.append("-")
-
+            print(mdata)
             nuc_counter = Counter(data)
-
 
             a_count = nuc_counter["A"]
             t_count = nuc_counter["T"]
@@ -293,12 +285,11 @@ class BlueBase:
             bp_color[cnt] = [max_nucleotide, freq_max]
             cnt = cnt + 1
 
-        # Blue base max.
-        blue_base_count = dict()
+        blue_base_count = defaultdict(int)
         nomiss_base_count = 0
         noblue_base_count = 0
         pctid_cutoff = [90.0, 80.0, 70.0, 60.0, 50.0, 40.0]
-        for seq in fasta_list:
+        for seq in sequences:
             for j in range(len(seq)):
                 if seq[j] != "-":
                     nomiss_base_count += 1
@@ -307,18 +298,12 @@ class BlueBase:
                         pctid = pctid_cutoff[c]
                         if c == 0:
                             if pctid + 10 >= bp_color[j + 1][1] >= pctid:
-                                if pctid not in blue_base_count:
-                                    blue_base_count[pctid] = 0
                                 blue_base_count[pctid] += 1
                         else:
                             if pctid + 10 > bp_color[j + 1][1] >= pctid:
-                                if pctid not in blue_base_count:
-                                    blue_base_count[pctid] = 0
                                 blue_base_count[pctid] += 1
                     if bp_color[j + 1][1] < 40.0:
                         pctid = 40.0
-                        if pctid not in blue_base_count:
-                            blue_base_count[pctid] = 0
                         blue_base_count[pctid] += 1
                 else:
                     if seq[j] != "-":
@@ -339,7 +324,7 @@ class BlueBase:
             "Blue base ratio",
         ]
         gap_stat_result = [
-            len(fasta_list),
+            len(sequences),
             gap_seq_count,
             gap_count,
             gap_freq,
@@ -398,3 +383,8 @@ class BlueBase:
         statistic = self.get_statistics(stat_file)
 
         return stat_file, statistic
+
+
+if __name__ == "__main__":
+    bluebase = BlueBase("/Users/ampersandor/data/sat/2509072204/a913379a-e0ce-410e-9d00-21ab2a0443a1/bird-watcher.aln", os.path.dirname(os.path.abspath(__file__)))
+    bluebase.main()

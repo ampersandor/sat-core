@@ -14,5 +14,3 @@ RUN chmod +x /usr/local/bin/uclust
 WORKDIR /app
 
 RUN pip install celery redis requests python-dotenv wonderwords biopython
-
-CMD ["celery", "-A", "tasks.core", "worker", "--loglevel=info"]

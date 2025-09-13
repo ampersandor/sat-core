@@ -7,7 +7,6 @@ from pathlib import Path
 
 import celery
 import requests
-import json
 from dotenv import load_dotenv
 from celery import Celery, signals
 from wonderwords import RandomWord
@@ -16,8 +15,8 @@ from .bluebase import BlueBase, Statistic
 
 load_dotenv()
 logger = logging.getLogger(__name__)
-broker_url = os.getenv("BROKER_URL", "pyamqp://guest@localhost//")
-webhook_url = os.getenv("WEBHOOK_URL", "http://localhost:8080/api/v1/analyze/update")
+broker_url = os.getenv("BROKER_URL")
+webhook_url = os.getenv("WEBHOOK_URL")
 r = RandomWord()
 
 app = Celery("tasks", broker=broker_url)
@@ -100,7 +99,7 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
             raise RuntimeError(f"{cmd[0]} failed with rc={process.returncode}: {error_msg}")
 
     logger.info("%s completed. Output: %s", cmd[0], align_file)
-    stat_file_name, statistic = BlueBase(str(input_path), str(output_dir))
+    stat_file_name, statistic = BlueBase(str(input_path), str(output_dir)).main()
 
     return align_file_name, stat_file_name, statistic
 
