@@ -69,7 +69,7 @@ def _notify(request, status: str, align_file=None, stat_file=None, statistic=Non
         task_id=task_id,
         align_file=align_file,
         stat_file=stat_file,
-        statistic=statistic.to_dict(),
+        statistic=statistic.to_dict() if statistic else None,
         output_dir=output_dir,
         message=message,
     )

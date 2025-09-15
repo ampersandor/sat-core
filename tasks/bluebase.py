@@ -22,7 +22,7 @@ Nucleotide_IUPAC_code = {
     "": "None",
     "ACGT": "X",
 }
-DEG_list = ["Y", "R", "W", "K", "S", "M", "N", "D", "V", "H", "B", "-", "."]
+DEG_list = ["Y", "R", "W", "K", "S", "M", "N", "D", "V", "H", "B", "-", ".", "+"]
 
 
 @dataclass
