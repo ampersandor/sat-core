@@ -31,13 +31,29 @@ class Statistic:
     gap_seq_count: int
     gap_count: int
     gap_frequency: float
-    gap_sum_length: int
+    sum_of_gap_length: int
     gap_length: int
     sum_of_blue_bases: int
     no_blue_bases: int
     no_miss_bases: int
     blue_base_ratio: float
-    blue_base_count: dict[float, int]
+    blue_base_count: str
+    
+    def to_dict(self):
+        """JSON 직렬화를 위한 딕셔너리 변환"""
+        return {
+            'total_seq': self.total_seq,
+            'gap_seq_count': self.gap_seq_count,
+            'gap_count': self.gap_count,
+            'gap_frequency': self.gap_frequency,
+            'gap_sum_length': self.sum_of_gap_length,
+            'gap_length': self.gap_length,
+            'sum_of_blue_bases': self.sum_of_blue_bases,
+            'no_blue_bases': self.no_blue_bases,
+            'no_miss_bases': self.no_miss_bases,
+            'blue_base_ratio': self.blue_base_ratio,
+            'blue_base_count': self.blue_base_count
+        }
 
 class BlueBase:
     def __init__(self, input_file, output_dir):
@@ -57,18 +73,24 @@ class BlueBase:
         with open(stat_file, "w") as wf:
             wf.write("\n".join(stat_values) + "\n")
 
+        serialized_blue_base_count = ""
+
+        for cutoff in pct_id_cutoff:
+            serialized_blue_base_count += f"{cutoff}: {blue_base_count[cutoff]}\n"
+
+
         statistic = Statistic(
             total_seq=gap_stat_result[0],
             gap_seq_count=gap_stat_result[1],
             gap_count=gap_stat_result[2],
             gap_frequency=gap_stat_result[3],
-            gap_sum_length=gap_stat_result[4],
+            sum_of_gap_length=gap_stat_result[4],
             gap_length=gap_stat_result[5],
             sum_of_blue_bases=gap_stat_result[6],
             no_blue_bases=gap_stat_result[7],
             no_miss_bases=gap_stat_result[8],
             blue_base_ratio=gap_stat_result[9],
-            blue_base_count=blue_base_count,
+            blue_base_count=serialized_blue_base_count.strip(),
         )
         return statistic
 
@@ -205,7 +227,6 @@ class BlueBase:
                     data.append(sequences[j][i])
                 except Exception as e:
                     data.append("-")
-            print(mdata)
             nuc_counter = Counter(data)
 
             a_count = nuc_counter["A"]
@@ -379,12 +400,14 @@ class BlueBase:
     def main(self):
         if not os.path.exists(self.input_file):
             raise FileNotFoundError(f"File not found: {self.input_file}")
-        stat_file = os.path.join(self.output_dir, self.base_name + ".txt")
+
+        stat_file_name = self.base_name + ".txt"
+        stat_file = os.path.join(self.output_dir, stat_file_name)
         statistic = self.get_statistics(stat_file)
 
-        return stat_file, statistic
+        return stat_file_name, statistic
 
 
 if __name__ == "__main__":
-    bluebase = BlueBase("/Users/ampersandor/data/sat/2509072204/a913379a-e0ce-410e-9d00-21ab2a0443a1/bird-watcher.aln", os.path.dirname(os.path.abspath(__file__)))
+    bluebase = BlueBase("/Users/ampersandor/data/sat/2509072204/a913379a-e0ce-410e-9d00-21ab2a0443a1/masonry.aln", os.path.dirname(os.path.abspath(__file__)))
     bluebase.main()

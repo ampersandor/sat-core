@@ -36,7 +36,7 @@ class Response:
     task_id: str
     align_file: str
     stat_file: str
-    statistic: Statistic
+    statistic: str
     output_dir: str
     message: str
 
@@ -69,7 +69,7 @@ def _notify(request, status: str, align_file=None, stat_file=None, statistic=Non
         task_id=task_id,
         align_file=align_file,
         stat_file=stat_file,
-        statistic=statistic,
+        statistic=statistic.to_dict(),
         output_dir=output_dir,
         message=message,
     )
@@ -87,21 +87,58 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
     align_file = output_dir / align_file_name
     log_file = output_dir / f"{random_word}.log"
 
-    cmd = [Tool(tool.lower()).value, *shlex.split(options or ""), str(input_path)]
+    cmd = create_cmd(Tool(tool.lower()), input_path, align_file, shlex.split(options or ""))
+    logger.info(f"Running command:\n{cmd}")
+
     output_dir.mkdir(parents=True, exist_ok=True)
 
     with open(align_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
-        process = subprocess.run(cmd, stdout=f_out, stderr=f_log, text=True)
+        process = subprocess.run(cmd, stdout=f_out, stderr=f_log, text=True, shell=True)
+
         if process.returncode != 0:
             with open(log_file, "r", encoding="utf-8") as f:
                 error_msg = f.read()
-            logger.error("%s failed: %s", cmd[0], error_msg[:1000])
-            raise RuntimeError(f"{cmd[0]} failed with rc={process.returncode}: {error_msg}")
+            logger.error("%s failed: %s", cmd, error_msg[:1000])
+            raise RuntimeError(f"{cmd} failed with rc={process.returncode}: {error_msg}")
 
-    logger.info("%s completed. Output: %s", cmd[0], align_file)
-    stat_file_name, statistic = BlueBase(str(input_path), str(output_dir)).main()
+    logger.info("%s completed. Output: %s", cmd, align_file)
+    stat_file_name, statistic = BlueBase(str(align_file), str(output_dir)).main()
 
     return align_file_name, stat_file_name, statistic
+
+
+def create_cmd(tool: Tool, input_path, output_path, options: list):
+    match tool:
+        case Tool.MAFFT:
+            return create_mafft_cmd(input_path, options)
+        case Tool.VSEARCH:
+            return create_vsearch_cmd(input_path, output_path, options)
+        case Tool.UCLUST:
+            return create_uclust_cmd(input_path, output_path, options)
+        case _:
+            raise ValueError(f"Invalid tool: {tool}") 
+
+
+def create_mafft_cmd(input_path, options: list):
+    cmd = f"{Tool.MAFFT.value} {" ".join(options)} {input_path}"
+    return cmd
+
+
+# vsearch --cluster_smallmen {input_file} --id {identity} --usersort --msaout {output_path}
+def create_vsearch_cmd(input_path, output_path, options: list):
+    cmd = f"{Tool.VSEARCH.value} --cluster_smallmem {input_path} {" ".join(options)} --msaout {output_path}"
+    return cmd
+
+def create_uclust_cmd(input_path, output_path, options: list):
+    base_name = os.path.basename(output_path).split(".")[0]
+    base_path = os.path.dirname(output_path)
+    uc_file = os.path.join(base_path, f"{base_name}_pctid_0.uc")
+    temp_fa = os.path.join(base_path, f"{base_name}_pctid_0.fa")
+
+    cmd1 = f"{Tool.UCLUST.value} --input {input_path} --uc {uc_file} {" ".join(options)}"
+    cmd2 = f"{Tool.UCLUST.value} --uc2fasta {uc_file} --input {input_path} --output {temp_fa}"
+    cmd3 = f"{Tool.UCLUST.value} --staralign {temp_fa} --output {output_path}"
+    return f"{cmd1} && {cmd2} && {cmd3}"
 
 @signals.task_success.connect
 def on_success(sender=None, result=None, **kwargs):
