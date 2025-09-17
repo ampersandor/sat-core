@@ -30,7 +30,8 @@ services:
 
   flower:
     image: mher/flower
-    command: ["celery","--broker=${BROKER_URL}","flower","--port=5555"]
+    container_name: sat-core-flower
+    command: ["celery","--broker=${BROKER_URL}","flower","--port=5555","--url_prefix=flower"]
     ports: ["5555:5555"]
     env_file: [.env]
     networks: [default]
