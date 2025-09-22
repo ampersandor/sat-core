@@ -13,6 +13,7 @@ from celery import Celery, signals
 from wonderwords import RandomWord
 from dataclasses import dataclass
 from Bio import SeqIO
+from Bio.Seq import Seq
 
 from .bluebase import BlueBase, Statistic
 
@@ -162,7 +163,7 @@ def clean_align_file(align_file):
             if record.id.startswith("*"):
                 record.id = record.id[1:]
             
-            record.seq = re.sub(r'[.~]', '-', record.seq).ljust(max_length, "-").upper()
+            record.seq = Seq(re.sub(r'[.~]', '-', str(record.seq)).ljust(max_length, "-").upper())
             SeqIO.write(record, f, "fasta")
     
     os.remove(align_file)
