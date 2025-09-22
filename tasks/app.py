@@ -162,6 +162,7 @@ def clean_align_file(align_file):
                 continue
             if record.id.startswith("*"):
                 record.id = record.id[1:]
+                record.description = record.id
             
             record.seq = Seq(re.sub(r'[.~]', '-', str(record.seq)).ljust(max_length, "-").upper())
             SeqIO.write(record, f, "fasta")
