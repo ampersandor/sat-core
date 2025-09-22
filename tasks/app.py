@@ -1,4 +1,5 @@
 import os
+import re
 import shlex
 import subprocess
 import logging
@@ -11,6 +12,8 @@ from dotenv import load_dotenv
 from celery import Celery, signals
 from wonderwords import RandomWord
 from dataclasses import dataclass
+from Bio import SeqIO
+
 from .bluebase import BlueBase, Statistic
 
 load_dotenv()
@@ -102,6 +105,10 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
             raise RuntimeError(f"{cmd} failed with rc={process.returncode}: {error_msg}")
 
     logger.info("%s completed. Output: %s", cmd, align_file)
+
+    if tool in [Tool.VSEARCH, Tool.UCLUST]:
+        align_file = clean_align_file(align_file)
+
     stat_file_name, statistic = BlueBase(str(align_file), str(output_dir)).main()
 
     return align_file_name, stat_file_name, statistic
@@ -139,6 +146,29 @@ def create_uclust_cmd(input_path, output_path, options: list):
     cmd2 = f"{Tool.UCLUST.value} --uc2fasta {uc_file} --input {input_path} --output {temp_fa}"
     cmd3 = f"{Tool.UCLUST.value} --staralign {temp_fa} --output {output_path}"
     return f"{cmd1} && {cmd2} && {cmd3}"
+
+def clean_align_file(align_file):
+    clean_align_file = align_file.replace(".aln", "_clean.aln")
+    max_length = 0
+    for record in SeqIO.parse(align_file, "fasta"):
+        if record.id == "consensus":
+            continue
+        max_length = max(max_length, len(record.seq))
+
+    with open(clean_align_file, "w") as f:
+        for record in SeqIO.parse(align_file, "fasta"):
+            if record.id == "consensus":
+                continue
+            if record.id.startswith("*"):
+                record.id = record.id[1:]
+            
+            record.seq = re.sub(r'[.~]', '-', record.seq).ljust(max_length, "-").upper()
+            SeqIO.write(record, f, "fasta")
+    
+    os.remove(align_file)
+
+    return clean_align_file
+
 
 @signals.task_success.connect
 def on_success(sender=None, result=None, **kwargs):
