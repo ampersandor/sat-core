@@ -148,7 +148,7 @@ def create_uclust_cmd(input_path, output_path, options: list):
     return f"{cmd1} && {cmd2} && {cmd3}"
 
 def clean_align_file(align_file):
-    clean_align_file = align_file.replace(".aln", "_clean.aln")
+    clean_align_file = align_file.with_name(align_file.stem + "_clean" + align_file.suffix)
     max_length = 0
     for record in SeqIO.parse(align_file, "fasta"):
         if record.id == "consensus":
