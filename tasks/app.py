@@ -87,7 +87,6 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
     random_word = r.word()
 
     align_file_name = f"{random_word}.aln"
-    clean_align_file_name = f"{random_word}_clean.aln"
     align_file = output_dir / align_file_name
     log_file = output_dir / f"{random_word}.log"
 
@@ -107,12 +106,12 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
 
     logger.info("%s completed. Output: %s", cmd, align_file)
 
-    if tool in [Tool.VSEARCH, Tool.UCLUST]:
-        align_file = clean_align_file(align_file)
+    if Tool(tool.lower()) in [Tool.VSEARCH, Tool.UCLUST]:
+        clean_align_file(align_file)
 
     stat_file_name, statistic = BlueBase(str(align_file), str(output_dir)).main()
 
-    return clean_align_file_name, stat_file_name, statistic
+    return align_file_name, stat_file_name, statistic
 
 
 def create_cmd(tool: Tool, input_path, output_path, options: list):
@@ -167,8 +166,7 @@ def clean_align_file(align_file):
             SeqIO.write(record, f, "fasta")
     
     os.remove(align_file)
-
-    return clean_align_file
+    os.rename(clean_align_file, align_file)
 
 
 @signals.task_success.connect
