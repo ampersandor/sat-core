@@ -95,8 +95,10 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
     logger.info(f"Running command:\n{cmd}")
 
     output_dir.mkdir(parents=True, exist_ok=True)
+    with open(log_file, "w", encoding="utf-8") as f_log:
+        f_log.write(f"Running command:\n{cmd}\n")
 
-    with open(align_file, "w") as f_out, open(log_file, "w", encoding="utf-8") as f_log:
+    with open(align_file, "w", encoding="utf-8") as f_out, open(log_file, "a", encoding="utf-8") as f_log:
         process = subprocess.run(cmd, stdout=f_out, stderr=f_log, text=True, shell=True)
 
         if process.returncode != 0:
@@ -108,7 +110,10 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
     logger.info("%s completed. Output: %s", cmd, align_file)
 
     if Tool(tool.lower()) in [Tool.VSEARCH, Tool.UCLUST]:
-        clean_align_file(align_file)
+        max_length =clean_align_file(align_file)
+    
+    if max_length == 0:
+        raise ValueError("Alignment file is empty")
 
     stat_file_name, statistic = BlueBase(str(align_file), str(output_dir)).main()
 
@@ -169,6 +174,7 @@ def clean_align_file(align_file):
     
     os.remove(align_file)
     os.rename(clean_align_file, align_file)
+    return max_length
 
 
 @signals.task_success.connect
