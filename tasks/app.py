@@ -3,8 +3,12 @@ import re
 import shlex
 import subprocess
 import logging
+import time
+import threading
+import psutil
 from enum import Enum
 from pathlib import Path
+from typing import Optional
 
 import celery
 import requests
@@ -35,6 +39,16 @@ class Tool(Enum):
 
 
 @dataclass
+class ResourceUsage:
+    """리소스 사용량 정보"""
+    max_memory_mb: float
+    avg_memory_mb: float
+    max_cpu_percent: float
+    avg_cpu_percent: float
+    execution_time_seconds: float
+
+
+@dataclass
 class Response:
     status: str
     task_id: str
@@ -43,7 +57,101 @@ class Response:
     statistic: str
     output_dir: str
     message: str
+    resource_usage: Optional[dict] = None
 
+
+class ResourceMonitor:
+    """프로세스 리소스 모니터링 클래스"""
+    
+    def __init__(self, process: subprocess.Popen, interval: float = 0.1):
+        self.process = process
+        self.interval = interval
+        self.memory_samples = []
+        self.cpu_samples = []
+        self.start_time = time.time()
+        self.monitoring = False
+        self.monitor_thread = None
+        
+    def start_monitoring(self):
+        """모니터링 시작"""
+        self.monitoring = True
+        self.start_time = time.time()
+        self.monitor_thread = threading.Thread(target=self._monitor_loop)
+        self.monitor_thread.daemon = True
+        self.monitor_thread.start()
+        
+    def stop_monitoring(self) -> ResourceUsage:
+        """모니터링 중지 및 결과 반환"""
+        self.monitoring = False
+        if self.monitor_thread:
+            self.monitor_thread.join(timeout=1.0)
+            
+        execution_time = time.time() - self.start_time
+        
+        # 샘플이 없는 경우 기본값 반환
+        if not self.memory_samples or not self.cpu_samples:
+            return ResourceUsage(
+                max_memory_mb=0.0,
+                avg_memory_mb=0.0,
+                max_cpu_percent=0.0,
+                avg_cpu_percent=0.0,
+                execution_time_seconds=execution_time
+            )
+            
+        return ResourceUsage(
+            max_memory_mb=max(self.memory_samples),
+            avg_memory_mb=sum(self.memory_samples) / len(self.memory_samples),
+            max_cpu_percent=max(self.cpu_samples),
+            avg_cpu_percent=sum(self.cpu_samples) / len(self.cpu_samples),
+            execution_time_seconds=execution_time
+        )
+        
+    def _monitor_loop(self):
+        """모니터링 루프"""
+        try:
+            # psutil Process 객체 생성
+            ps_process = psutil.Process(self.process.pid)
+            
+            while self.monitoring and self.process.poll() is None:
+                try:
+                    # 메모리 사용량 (MB) - 부모 프로세스 + 모든 자식 프로세스 포함
+                    memory_mb = 0.0
+                    cpu_percent = 0.0
+                    
+                    try:
+                        # 부모 프로세스 메모리
+                        memory_mb = ps_process.memory_info().rss / (1024 * 1024)
+                        # 부모 프로세스 CPU (멀티스레드 포함)
+                        cpu_percent = ps_process.cpu_percent()
+                        
+                        # 자식 프로세스들의 리소스 추가 (fork된 경우 대비)
+                        for child in ps_process.children(recursive=True):
+                            try:
+                                print(f"child: {child}, memory_mb: {child.memory_info().rss / (1024 * 1024)}, cpu_percent: {child.cpu_percent()}")
+                                memory_mb += child.memory_info().rss / (1024 * 1024)
+                                cpu_percent += child.cpu_percent()
+                            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                                # 자식 프로세스가 이미 종료된 경우 무시
+                                pass
+                                
+                    except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                        # 부모 프로세스가 종료된 경우
+                        break
+                    
+                    self.memory_samples.append(memory_mb)
+                    self.cpu_samples.append(cpu_percent)
+                    
+                    time.sleep(self.interval)
+                    
+                except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+                    # 프로세스가 종료되었거나 접근할 수 없는 경우
+                    break
+                except Exception as e:
+                    logger.warning(f"Resource monitoring error: {e}")
+                    break
+                    
+        except Exception as e:
+            logger.error(f"Failed to start resource monitoring: {e}")
 
 
 def _extract_args(request):
@@ -65,7 +173,7 @@ def _post_webhook(payload: dict):
         logger.exception("[Webhook error] %s", e)
 
 
-def _notify(request, status: str, align_file=None, stat_file=None, statistic=None, message=None):
+def _notify(request, status: str, align_file=None, stat_file=None, statistic=None, message=None, resource_usage=None):
     task_id = request.id
     output_dir = _extract_args(request)
     response = Response(
@@ -76,6 +184,7 @@ def _notify(request, status: str, align_file=None, stat_file=None, statistic=Non
         statistic=statistic.to_dict() if statistic else None,
         output_dir=output_dir,
         message=message,
+        resource_usage=resource_usage.__dict__ if resource_usage else None,
     )
     _post_webhook(response.__dict__)
 
@@ -98,26 +207,56 @@ def run_tool(self: celery.Task, dir_name, base_name, tool, options):
     with open(log_file, "w", encoding="utf-8") as f_log:
         f_log.write(f"Running command:\n{cmd}\n")
 
+    resource_usage = None
+    
     with open(align_file, "w", encoding="utf-8") as f_out, open(log_file, "a", encoding="utf-8") as f_log:
-        process = subprocess.run(cmd, stdout=f_out, stderr=f_log, text=True, shell=True)
-
-        if process.returncode != 0:
-            with open(log_file, "r", encoding="utf-8") as f:
-                error_msg = f.read()
-            logger.error("%s failed: %s", cmd, error_msg[:1000])
-            raise RuntimeError(f"{cmd} failed with rc={process.returncode}: {error_msg}")
+        # 프로세스 시작
+        process = subprocess.Popen(
+            cmd, 
+            stdout=f_out, 
+            stderr=f_log, 
+            text=True, 
+            shell=True
+        )
+        
+        # 리소스 모니터링 시작
+        monitor = ResourceMonitor(process)
+        monitor.start_monitoring()
+        
+        try:
+            # 프로세스 완료 대기
+            return_code = process.wait()
+            
+            # 리소스 모니터링 중지 및 결과 수집
+            resource_usage = monitor.stop_monitoring()
+            
+            logger.info(f"Resource usage - Memory: {resource_usage.max_memory_mb:.2f}MB (max), "
+                       f"CPU: {resource_usage.max_cpu_percent:.2f}% (max), "
+                       f"Time: {resource_usage.execution_time_seconds:.2f}s")
+            
+            if return_code != 0:
+                with open(log_file, "r", encoding="utf-8") as f:
+                    error_msg = f.read()
+                logger.error("%s failed: %s", cmd, error_msg[:1000])
+                raise RuntimeError(f"{cmd} failed with rc={return_code}: {error_msg}")
+                
+        except Exception as e:
+            # 예외 발생 시에도 리소스 사용량 수집
+            resource_usage = monitor.stop_monitoring()
+            raise
 
     logger.info("%s completed. Output: %s", cmd, align_file)
 
     if Tool(tool.lower()) in [Tool.VSEARCH, Tool.UCLUST]:
-        max_length =clean_align_file(align_file)
-    
-    if max_length == 0:
-        raise ValueError("Alignment file is empty")
+        logger.info("Cleaning output from %s", Tool(tool.lower()))
+        max_length = clean_align_file(align_file)
+        if max_length == 0:
+            logger.error("max_length: %d", max_length)
+            raise ValueError("Alignment file is empty")
 
     stat_file_name, statistic = BlueBase(str(align_file), str(output_dir)).main()
 
-    return align_file_name, stat_file_name, statistic
+    return align_file_name, stat_file_name, statistic, resource_usage
 
 
 def create_cmd(tool: Tool, input_path, output_path, options: list):
@@ -133,7 +272,7 @@ def create_cmd(tool: Tool, input_path, output_path, options: list):
 
 
 def create_mafft_cmd(input_path, options: list):
-    cmd = f"{Tool.MAFFT.value} {" ".join(options)} {input_path}"
+    cmd = f"{Tool.MAFFT.value} {" ".join(options)} --thread 8 {input_path}"
     return cmd
 
 
@@ -179,10 +318,13 @@ def clean_align_file(align_file):
 
 @signals.task_success.connect
 def on_success(sender=None, result=None, **kwargs):
-    align_file, stat_file, statistic = result
-    _notify(sender.request, "SUCCESS", align_file=align_file, stat_file=stat_file, statistic=statistic)
+    align_file, stat_file, statistic, resource_usage = result
+    _notify(sender.request, "SUCCESS", align_file=align_file, stat_file=stat_file, 
+            statistic=statistic, resource_usage=resource_usage)
 
 
 @signals.task_failure.connect
 def on_failure(sender=None, exception=None, **kwargs):
     _notify(sender.request, "ERROR", message=str(exception))
+
+

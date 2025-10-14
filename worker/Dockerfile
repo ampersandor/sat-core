@@ -21,4 +21,4 @@ RUN tar xvzf /opt/vsearch-2.19.0.tar.gz -C /opt/ && \
 
 WORKDIR /app
 
-RUN pip install celery redis requests python-dotenv wonderwords biopython
+RUN pip install celery redis requests python-dotenv wonderwords biopython psutil

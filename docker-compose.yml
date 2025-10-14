@@ -19,7 +19,7 @@ services:
       context: ./worker
       dockerfile: Dockerfile
     user: "1000:1000"
-    command: celery -A tasks.app worker --loglevel=info --concurrency=2
+    command: celery -A tasks.app worker --loglevel=info --concurrency=8
     env_file: [.env]
     volumes:
       - "${DATA_DIR}:/data"
