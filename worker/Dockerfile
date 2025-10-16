@@ -7,6 +7,10 @@ RUN tar xvzf mafft-7.487-without-extensions-src.tgz && \
     make clean && make && make install && \
     cd ../.. && rm -rf mafft-7.487-without-extensions*
 
+RUN mkdir -p /app/tmp && chmod 777 /app/tmp
+ENV MAFFT_TMPDIR=/app/tmp
+ENV TMPDIR=/app/tmp
+
 # Install UCLUST and VSEARCH
 COPY ./lib/uclust /usr/local/bin/
 RUN chmod +x /usr/local/bin/uclust
@@ -20,5 +24,6 @@ RUN tar xvzf /opt/vsearch-2.19.0.tar.gz -C /opt/ && \
     rm -rf /opt/vsearch-2.19.0
 
 WORKDIR /app
+
 
 RUN pip install celery redis requests python-dotenv wonderwords biopython psutil
